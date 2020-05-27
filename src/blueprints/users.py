@@ -8,6 +8,7 @@ from flask import (
 from flask.views import MethodView
 from werkzeug.security import generate_password_hash
 
+from auth import auth_required
 from database import db
 
 
@@ -16,12 +17,12 @@ bp = Blueprint('users', __name__)
 
 class UsersView(MethodView):
     def get(self):
-        con = db.connection
-        cur = con.execute(
-            'SELECT id, username '
-            'FROM user'
-        )
-        rows = cur.fetchall()
+        with db.connection as con:
+            cur = con.execute(
+                'SELECT id, username '
+                'FROM user'
+            )
+            rows = cur.fetchall()
         return jsonify([dict(row) for row in rows])
 
     def post(self):
@@ -34,59 +35,52 @@ class UsersView(MethodView):
 
         password_hash = generate_password_hash(password)
 
-        con = db.connection
-        try:
-            con.execute(
-                'INSERT INTO user (username, password) '
-                'VALUES (?, ?)',
-                (username, password_hash),
-            )
-            con.commit()
-        except sqlite3.IntegrityError:
-            return '', 409
+        with db.connection as con:
+            try:
+                con.execute(
+                    'INSERT INTO user (username, password) '
+                    'VALUES (?, ?)',
+                    (username, password_hash),
+                )
+                con.commit()
+            except sqlite3.IntegrityError:
+                return '', 409
 
         return '', 201
 
 
 class UserView(MethodView):
     def get(self, user_id):
-        con = db.connection
-        cur = con.execute(
-            'SELECT id, username '
-            'FROM user '
-            'WHERE id = ?',
-            (user_id,),
-        )
-        user = cur.fetchone()
+        with db.connection as con:
+            cur = con.execute(
+                'SELECT id, username '
+                'FROM user '
+                'WHERE id = ?',
+                (user_id,),
+            )
+            user = cur.fetchone()
         if user is None:
             return '', 404
         return jsonify(dict(user))
 
-    def patch(self, user_id):
+    @auth_required
+    def patch(self, user_id, user):
+        if user_id != user['id']:
+            return '', 403
+
         request_json = request.json
         username = request_json.get('username')
         if not username:
             return '', 400
 
-        con = db.connection
-
-        cur = con.execute(
-            'SELECT id, username '
-            'FROM user '
-            'WHERE id = ?',
-            (user_id,),
-        )
-        user = cur.fetchone()
-        if user is None:
-            return '', 404
-
-        con.execute(
-            'UPDATE user '
-            'SET username = ? '
-            'WHERE id = ?',
-            (username, user_id),
-        )
-        con.commit()
+        with db.connection as con:
+            con.execute(
+                'UPDATE user '
+                'SET username = ? '
+                'WHERE id = ?',
+                (username, user_id),
+            )
+            con.commit()
         return '', 200
 
 

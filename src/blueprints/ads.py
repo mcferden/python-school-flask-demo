@@ -2,11 +2,15 @@ from flask import (
     Blueprint,
     jsonify,
     request,
-    session,
 )
 from flask.views import MethodView
 
+from auth import auth_required
 from database import db
+from services.ads import (
+    AdDoesNotExistError,
+    AdsService,
+)
 
 
 bp = Blueprint('ads', __name__)
@@ -14,73 +18,49 @@ bp = Blueprint('ads', __name__)
 
 class AdsView(MethodView):
     def get(self):
-        con = db.connection
-        cur = con.execute(
-            'SELECT * '
-            'FROM ad'
-        )
-        result = cur.fetchall()
-        return jsonify([dict(row) for row in result])
+        with db.connection as con:
+            service = AdsService(con)
+            ads = service.get_ads()
+            return jsonify(ads)
 
-    def post(self):
-        user_id = session.get('user_id')
-        if user_id is None:
-            return '', 403
-
+    @auth_required
+    def post(self, user):
+        user_id = user['id']
         request_json = request.json
         title = request_json.get('title')
 
         if not title:
             return '', 400
 
-        con = db.connection
-        con.execute(
-            'INSERT INTO ad (title, user_id) '
-            'VALUES (?, ?)',
-            (title, user_id),
-        )
-        con.commit()
+        with db.connection as con:
+            con.execute(
+                'INSERT INTO ad (title, user_id) '
+                'VALUES (?, ?)',
+                (title, user_id),
+            )
+            con.commit()
 
-        cur = con.execute(
-            'SELECT * '
-            'FROM ad '
-            'WHERE user_id = ? AND title = ?',
-            (user_id, title),
-        )
-        ad = cur.fetchone()
+            cur = con.execute(
+                'SELECT * '
+                'FROM ad '
+                'WHERE user_id = ? AND title = ?',
+                (user_id, title),
+            )
+            ad = cur.fetchone()
         return jsonify(dict(ad)), 201
 
 
 class AdView(MethodView):
     def get(self, ad_id):
-        con = db.connection
-        cur = con.execute(
-            'SELECT * '
-            'FROM ad '
-            'WHERE id = ?',
-            (ad_id,),
-        )
-        ad = cur.fetchone()
-        if ad is None:
-            return '', 404
-        return jsonify(dict(ad))
+        with db.connection as con:
+            service = AdsService(con)
+            try:
+                ad = service.get_ad(ad_id)
+            except AdDoesNotExistError:
+                return '', 404
+            else:
+                return jsonify(ad)
 
 
 bp.add_url_rule('', view_func=AdsView.as_view('ads'))
 bp.add_url_rule('/<int:ad_id>', view_func=AdView.as_view('ad'))
-
-# @bp.route('/ads')
-# def get_ads():
-#     user_id = session.get('user_id')
-#     if user_id is None:
-#         return '', 403
-#
-#     con = db.connection
-#     cur = con.execute(
-#         'SELECT * '
-#         'FROM ad '
-#         'WHERE user_id = ?',
-#         (user_id,),
-#     )
-#     result = cur.fetchall()
-#     return jsonify([dict(row) for row in result])

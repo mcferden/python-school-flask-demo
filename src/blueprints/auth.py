@@ -20,14 +20,14 @@ def login():
     if not username or not password:
         return '', 400
 
-    con = db.connection
-    cur = con.execute(
-        'SELECT * '
-        'FROM user '
-        'WHERE username = ?',
-        (username,),
-    )
-    user = cur.fetchone()
+    with db.connection as con:
+        cur = con.execute(
+            'SELECT * '
+            'FROM user '
+            'WHERE username = ?',
+            (username,),
+        )
+        user = cur.fetchone()
 
     if user is None:
         return '', 403
