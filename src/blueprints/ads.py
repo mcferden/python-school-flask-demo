@@ -18,9 +18,12 @@ bp = Blueprint('ads', __name__)
 
 class AdsView(MethodView):
     def get(self):
+        qs = dict(request.args)
+        if 'tags' in qs:
+            qs['tags'] = qs['tags'].split(',')
         with db.connection as con:
             service = AdsService(con)
-            ads = service.get_ads()
+            ads = service.get_ads(qs)
             return jsonify(ads)
 
     @auth_required
